@@ -5,7 +5,7 @@ require 'statechart/version'
 
 Gem::Specification.new do |spec|
   spec.name          = "statechart"
-  spec.version       = Statechart::VERSION
+  spec.version       = Version::VERSION
   spec.authors       = ["Congwen Ma"]
   spec.email         = ["Congwen.Ma@centro.net"]
 

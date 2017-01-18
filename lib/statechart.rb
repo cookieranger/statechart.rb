@@ -1,5 +1,5 @@
 require "statechart/version"
 
-module Statechart
-  # Your code goes here...
+class Statechart
+  include Version
 end
