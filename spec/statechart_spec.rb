@@ -1,11 +1,12 @@
 require 'spec_helper'
+require 'byebug'
 
 describe Statechart do
-  it 'has a version number' do
-    expect(Statechart::VERSION).not_to be nil
+  before do
+    @chart = Statechart.new('a')
   end
 
-  it 'does something useful' do
-    expect(false).to eq(false)
+  it "should set the name" do
+    @chart.name.should == 'a'
   end
 end
