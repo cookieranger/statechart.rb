@@ -1,6 +1,15 @@
 require 'spec_helper'
 require 'byebug'
 
+describe '$uniqState' do
+  it 'should only return states with unique path' do
+    state1 = double(path: './path1')
+    state2 = double(path: './path2')
+    state3 = double(path: './path1')
+    uniqStates([state1, state2, state3]).should == [state1, state2]
+  end
+end
+
 describe StateNode do
   before do
     @state = StateNode.new('a')
@@ -22,8 +31,8 @@ describe StateNode do
     @state.concurrent?.should == false
   end
 
-  fit 'should create a state_node with `concurrent?` to `true`' do
-    @state = StateNode.new(concurrent: true)
+  it 'should create a state_node with `concurrent?` to `true`' do
+    @state = StateNode.new('a', concurrent: true)
     @state.concurrent?.should == true
   end
 end
