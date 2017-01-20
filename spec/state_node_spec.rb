@@ -31,8 +31,36 @@ describe StateNode do
     @state.concurrent?.should == false
   end
 
-  it 'should create a state_node with `concurrent?` to `true`' do
-    @state = StateNode.new('a', concurrent: true)
-    @state.concurrent?.should == true
+  it 'should be able to create a StateNode with `concurrent?` to `true`' do
+    StateNode.new('a', concurrent: true).concurrent?.should == true
+  end
+
+  # history
+  it 'should default `history` to `false`' do
+    @state.history?.should == false
+  end
+
+  it 'should be able to create a StateNode with `history` to `true` via `H` option' do
+    state = StateNode.new('a', H: true)
+    state.history?.should == true
+    state.deep?.should == false
+  end
+
+  it 'should be able to create a StateNode with `history` and `deep` to `true` via setting `H` option to `*`' do
+    state = StateNode.new('a', H: '*')
+    state.history?.should == true
+    state.deep?.should == true
+  end
+
+  it 'should Raise Excpetion if `concurrent` and `H` are both set' do
+    -> { StateNode.new('a', H: true, concurrent: true) }.should raise_error StateNode::ConcurrentHistoryError
+  end
+
+  it 'should invoke the given function with the the newly constructed StateNode' do
+    tmp = nil
+    state = StateNode.new('a') do |post_state|
+      tmp = post_state
+    end
+    tmp.should == state
   end
 end

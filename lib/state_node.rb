@@ -16,18 +16,20 @@ end
 
 class StateNode
   attr_accessor *%i{
-    name substate_map substates superstate enters exits events concurrent history deep __isCurrent__ __cache__ 
+    name substate_map substates superstate enters exits events concurrent history deep __is_current__ __cache__ 
     __transitions__ trace
   }
 
-  def initialize(name, opts = {}, callback = -> {})
+  class ConcurrentHistoryError < ArgumentError; end
+
+  def initialize(name, opts = {}, &callback)
     @name = name
 
     # TODO: smart argument recognizer, swap callback to opts if opts is function, and set opts to {}
 
     # can't be both 'concurrent' and 'History'
     if opts[:concurrent] && opts[:H]
-      raise ArgumentError.new('State: history states are not allowed on concurrent state.')
+      raise ConcurrentHistoryError, 'State: history states are not allowed on concurrent state.'    
     end
      
     @name            = name
@@ -40,19 +42,23 @@ class StateNode
     @concurrent      = !!opts[:concurrent]
     @history         = !!opts[:H]
     @deep            = opts[:H] === '*'
-    @__isCurrent__   = false
+    @__is_current__  = false
     @__cache__       = {}
     @__transitions__ = []
     @trace           = false
+
+    callback.call(self) if callback
   end
 
   def concurrent?() @concurrent; end
+  def history?() @history end
+  def deep?() @deep end
   
   # <Boolean> indicating whether or not the state at the given path is current
   def current?(path = '.') 
     # check if {path} is resolvable from {thisState}
     state = resolve(path)
-    !!state && state.__isCurrent__
+    !!state && state.__is_current__
   end
   
   def resolve(path) end
