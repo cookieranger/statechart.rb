@@ -16,7 +16,6 @@ module EnterStateFunctions
 
   # Enters a clustered state NOTE: private
   def enter_clustered(states, opts)
-    # byebug if name == 'm'
     selflen = path_states.size
 
     # find the first active substate and set to cur, break
@@ -38,9 +37,9 @@ module EnterStateFunctions
       condition_state_callback = @__condition__[:method]
       if condition_state_callback && (paths = condition_state_callback.(opts[:context]))
         # for all [paths], check if path is resolvable (from this), put onto states
-        states = paths.flatten.reduce([]) do |arr, path|
+        states = [paths].flatten.reduce([]) do |arr, path|
           if !(state = resolve(path))
-            raise CannotResolveConditionPathError, "StateNode#enter_clustered: could not resolve path '#{path}' returned by condition function from #{self}"
+            raise StateNode::CannotResolveConditionPathError, "StateNode#enter_clustered: could not resolve path '#{path}' returned by condition function from #{self}"
           end
           arr << state
         end
@@ -107,6 +106,11 @@ module EnterStateFunctions
   # pending implementation
   def can_exit?(states, opts)
     true
+  end
+
+  # resets the statechart by exiting all current states
+  def reset
+    exit({})
   end
 
   def exit(opts)

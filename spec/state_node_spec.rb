@@ -63,6 +63,138 @@ describe StateNode do
     tmp.should == state
   end
 
+  describe '.define' do
+    it 'should create a root state with the name `__root__`' do
+      s = StateNode.define
+      s.superstate.should == nil
+      s.name.should == '__root__'
+    end
+
+    it 'should pass the options to the `StateNode` constructor' do
+      s = StateNode.define(concurrent: true)
+      s.concurrent?.should == true
+    end
+
+    it 'should call the given function in the context of the newly created state' do
+      ctx = nil
+      s = StateNode.define(&->(state) { ctx = state})
+      ctx.should == s
+    end
+  end
+
+  describe '#root?' do
+    it 'returns true for the node returned by StateNode.define' do
+      StateNode.define.root?.should == true
+    end
+
+    it 'returns FALSE for all other states' do
+      stateA = StateNode.new 'a'
+      stateB = StateNode.new 'b'
+      StateNode.define.add_substate(stateA).add_substate(stateB).root?.should == true
+      stateA.root?.should == false
+      stateB.root?.should == false
+      StateNode.new('we').root?.should == false
+    end
+  end
+
+  describe '#state' do
+    let(:root) { StateNode.define }
+    it 'should create a substate with the given name on the receiver' do
+      x = root.state('x')
+      x.class.should == StateNode # hmm. === doesn't work here
+    end
+
+    it 'should pass the options to the `State` constructor' do
+      x = root.state('x', concurrent: true)
+      x.concurrent?.should === true
+    end
+
+    it 'should call the given function with teh newly created state' do
+      context = nil
+      x = root.state('x', concurrent: true, &->(ctx) { context = ctx})
+      context.should === x
+    end
+
+    describe 'when given a `State` instance' do
+      it 'should add the given state as a substate' do
+        s = StateNode.new('s')
+        root.state(s)
+        root.substates.should =~ [s]
+      end
+    end
+  end
+
+  describe '#resolve' do
+    let(:root)  { StateNode.new('root') }
+    let(:s)     { StateNode.new('s') }
+    let(:s1)    { StateNode.new('s1') }
+    let(:s2)    { StateNode.new('s2') }
+    let(:s11)   { StateNode.new('s11') }
+    let(:s12)   { StateNode.new('s12') }
+    let(:s21)   { StateNode.new('s21') }
+    let(:s22)   { StateNode.new('s22') }
+
+    before do      
+      root.add_substate(s);
+      s.add_substate(s1);
+      s.add_substate(s2);
+      s1.add_substate(s11);
+      s1.add_substate(s12);
+      s2.add_substate(s21);
+      s2.add_substate(s22);
+    end
+
+    it 'should return the state object at the given full path from the root state' do
+      root.resolve('/s').should == s
+      root.resolve('/s/s1').should == s1
+      root.resolve('/s/s2/s22').should == s22
+    end
+
+    it 'should return the state object at the given relative path from the root state' do
+      root.resolve('s').should == s
+      root.resolve('s/s1').should == s1
+      root.resolve('s/s1/../s2').should == s2
+    end
+
+    it 'should return the state object at the given full path from a child state' do
+      s12.resolve('/s').should == s
+      s22.resolve('/s/s1').should == s1
+      s21.resolve('/s/s2/s22').should == s22
+    end
+
+    it 'should resolve the state object at the given relative path from a child state' do
+      s1.resolve('s12').should == s12
+      s1.resolve('s11').should == s11
+      s22.resolve('../..').should == s
+      s22.resolve('../../..').should == root
+    end
+
+    it 'should return nil when given an invalid path' do
+      root.resolve('/a/b/x').should == nil
+    end
+
+    it 'should return nil when given given nil' do
+      root.resolve(nil).should == nil
+    end
+  end
+
+  describe 'Subclass of State' do
+    class CustomState < StateNode
+    end
+
+    describe 'CustomState.define' do
+      it 'creates instances of CustomState' do
+        CustomState.define.class.should == CustomState
+      end
+    end
+
+    describe 'CustomState#state' do
+      it 'creates instances of CustomState' do
+        CustomState.define.state('x').class.should == CustomState
+      end
+    end
+  end
+
   describe '#add_substate dependencies' do
     before do
       @stateA, @stateB, @stateC = ['a', 'b', 'c'].map{|name| StateNode.new(name)}
@@ -156,7 +288,7 @@ describe StateNode do
   end
 
   describe '#goto dependencies' do
-    xdescribe '#enter#exit handlers - Independent test' do
+    describe '#enter#exit handlers - Independent test' do
       let(:enter_a) { StateNode.new('enterA') }
       let(:enter_b) { StateNode.new('enterB') }
       let(:enter_c) { StateNode.new('enterC') }
@@ -230,7 +362,7 @@ describe StateNode do
     end
 
     # direct translated replica of statechart.js
-    describe 'StateNode#goto and E2E' do
+    describe 'StateNode#goto and Enter Exit handlers' do
       let(:root) { StateNode.new('root')                  }
       let(:a)    { StateNode.new('a')                     }
       let(:b)    { StateNode.new('b', {H: true})          }
@@ -483,6 +615,244 @@ describe StateNode do
           [root.resolve('/b')], 
           context: 'the context', force: true
         ]
+      end
+    end
+
+    describe 'condition states' do
+      let(:root) { StateNode.new('root') }
+      let(:x)    { StateNode.new('x') }
+      let(:y)    { StateNode.new('y') }
+      let(:z)    { StateNode.new('z', H: true) }
+      let(:z1)   { StateNode.new('z1') }
+      let(:z2)   { StateNode.new('z2') }
+      let(:a)    { StateNode.new('a') }
+      let(:b)    { StateNode.new('b') }
+      let(:c)    { StateNode.new('c', concurrent: true) }
+      let(:d)    { StateNode.new('d') }
+      let(:e)    { StateNode.new('e') }
+      let(:f)    { StateNode.new('f') }
+      let(:g)    { StateNode.new('g') }
+      let(:h)    { StateNode.new('h') }
+      let(:i)    { StateNode.new('i') }
+
+      before do
+        root.add_substate(x)
+        root.add_substate(a)
+        root.add_substate(z)
+        a.add_substate(b)
+        a.add_substate(c)
+        a.add_substate(y)
+        c.add_substate(d)
+        c.add_substate(e)
+        d.add_substate(f)
+        d.add_substate(g)
+        e.add_substate(h)
+        e.add_substate(i)
+        z.add_substate(z1)
+        z.add_substate(z2)
+
+        root.goto
+        root.all_active_paths.should == ['/x']
+      end
+
+      it 'should throw an exception when a condition state is defined on concurrent state' do
+        -> {
+          StateNode.new('x', concurrent: true).C(&->{})
+        }.should raise_error StateNode::ConcurrentStateCannotHaveConditionError
+      end
+
+      it 'should throw an exception when the states returned by the condition function dont exist' do
+        a.C(&->(arg){'./blah'})
+
+        -> {root.goto('/a') }.should raise_error StateNode::CannotResolveConditionPathError
+      end
+
+      it 'should cause #goto to enter the state returned by teh condtiion function' do
+        a.C(&->(arg) { './y' })
+        root.goto '/a'
+        root.all_active_paths.should == ['/a/y']
+      end
+
+      it 'should cause #goto to enter the first substate when null is returned by the condition function' do
+        a.C(&->(arg) { nil })
+        root.goto '/a'
+        root.all_active_paths.should == ['/a/b']
+      end
+
+      it 'should cause #goto to use the history state when tis defined and the condition function returns null' do
+        z.C(&->(arg) { nil })
+        root.goto '/z/z2'
+        root.all_active_paths.should == ['/z/z2']
+        root.goto '/x'
+        root.all_active_paths.should == ['/x']
+        root.goto '/z'
+        root.all_active_paths.should == ['/z/z2']
+      end
+
+      it 'should cause #goto to enter the states returned by the condition function' do
+        a.C(&->(arg) { ['./c/d/g', '/a/c/e/i'] })
+        root.goto '/a'
+        root.all_active_paths.should == ['/a/c/d/g', '/a/c/e/i']
+      end
+
+      it 'should pass the context to the condition function' do
+        passed_ctx= nil
+        a.C do |ctx| 
+          passed_ctx = ctx
+          ['./c/d/g', '/a/c/e/i'] #anything string / array of string
+        end
+
+        root.goto('/a', context: [1,2,3])
+        passed_ctx.should == [1,2,3]
+      end
+
+      it 'should NOT be called when destination states are given' do
+        called = false
+        a.C(&->(arg) { called = true; './adf/adsf/ads/f' })
+        root.goto '/a/b'
+
+        called.should == false
+        root.all_active_paths.should == ['/a/b']
+      end
+    end
+
+    describe '#send' do
+      let(:root)  { StateNode.new('root', concurrent: true) }
+      let(:a)     { StateNode.new('a') }
+      let(:b)     { StateNode.new('b') }
+      let(:c)     { StateNode.new('c') }
+      let(:d)     { StateNode.new('d') }
+      let(:e)     { StateNode.new('e') }
+      let(:f)     { StateNode.new('f') }
+      let(:calls) { [] }
+
+      before do
+        root.add_substate(a)
+        a.add_substate(b)
+        a.add_substate(c)
+        root.add_substate(d)
+        d.add_substate(e)
+        d.add_substate(f)
+
+        root.event('someEvent') { |ctx| calls << ctx; false }
+        a.event('someEvent') { |ctx| calls << ctx; false }
+        b.event('someEvent') { |ctx| calls << ctx; false }
+        c.event('someEvent') { |ctx| calls << ctx; false }
+        d.event('someEvent') { |ctx| calls << ctx; false }
+        e.event('someEvent') { |ctx| calls << ctx; false }
+        f.event('someEvent') { |ctx| calls << ctx; false }
+
+        root.goto()
+      end
+
+      it 'precondition' do
+        root.all_active_paths.should == ['/a/b', '/d/e']
+      end
+
+      it 'should pass additional arguments to the event handler' do
+        all_args = nil
+        b.event('someEvent', &->(*args) { all_args = args})
+        root.send_event 'someEvent', 1, 2, 'foo'
+        all_args.should === [b, 1, 2, 'foo']
+      end
+
+      it 'should bubble the event up each current states superstate chain' do
+        root.send_event('someEvent')
+        calls.map(&:name).should == %w(b a e d root)
+      end
+
+      # in ruby case, truthy value means true
+      it 'should STOP bubbling when a ahandler on a clustered substate returns a truthy value' do
+        state_root = StateNode.new('root')
+        state_a = StateNode.new('a')
+        state_b = StateNode.new('b')
+        _calls = []
+
+        state_root.add_substate(state_a)
+        state_a.add_substate(state_b)
+        state_root.goto
+
+        state_root.event('someEvent') { |ctx| _calls << ctx; false }
+        state_a.event('someEvent') { |ctx| _calls << ctx; true }
+        state_b.event('someEvent') { |ctx| _calls << ctx; false }
+
+        state_root.send_event('someEvent')
+        _calls.map(&:name).should == ['b', 'a']
+
+        _calls.clear
+        state_b.event('someEvent') { |ctx| _calls << ctx; true }
+        state_root.send_event('someEvent')
+        _calls.map(&:name).should == ['b']
+      end
+
+      it 'should STOP bubbling when all handlers on a concurrent state return a truthy value' do
+        a.event('someEvent') { |ctx| calls << ctx; true }
+        root.send_event 'someEvent'
+        calls.map(&:name).should == %w(b a e d root)
+
+        root.goto
+        calls.clear
+
+        d.event('someEvent') { |ctx| calls << ctx; true }
+        root.send_event 'someEvent'
+        calls.map(&:name).should == %w(b a e d)
+      end
+
+      it 'should NOT perform transitions made in an event handler until all current states have received the event' do
+        active_paths = []
+        b.event('someEvent') { |state| state.goto('/a/c'); false }
+        e.event('someEvent') { active_paths = root.all_active_paths; false }
+
+        root.send_event('someEvent')
+
+        root.all_active_paths.should == ['/a/c', '/d/e']
+        active_paths.should == ['/a/b', '/d/e']
+      end
+    end
+
+    describe '#reset' do
+      it 'should exit all current states' do
+        root = StateNode.define do |st|
+          st.state('x') do |x|
+            x.state('y')
+            x.state('z')
+          end
+        end
+        root.goto
+        root.all_active_paths.should == ['/x/y']
+        root.__is_current__?.should == true
+
+        root.reset
+        root.all_active_paths.should == []
+        root.__is_current__?.should == false
+      end
+    end
+
+    describe '#current?' do
+      it 'returns true if the state at the given relative path is current and FALSE otherwise' do
+        r = StateNode.new('')
+        x = StateNode.new('x')
+        y = StateNode.new('y')
+        z = StateNode.new('z')
+
+        r.add_substate(x)
+        x.add_substate(y)
+        x.add_substate(z)
+
+        r.goto()
+
+        r.current?('./x/y').should == true
+        r.current?('./x/z').should == false
+        y.current?('.').should == true
+        y.current?('..').should == true
+        z.current?('..').should == true
+        z.current?('.').should == false
+        z.current?('/x/y').should == true
+        z.current?('/x/z').should == false
+      end
+
+      it 'should return false if the state DOES NOT exist' do
+        StateNode.new('').current?('/x/y/z').should == false
       end
     end
   end

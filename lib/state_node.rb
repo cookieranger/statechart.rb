@@ -1,4 +1,6 @@
 require 'enter_state_fns'
+require 'event_fns'
+
 require 'json'
 require 'pp'
 
@@ -20,6 +22,7 @@ end
 
 class StateNode
   include EnterStateFunctions
+  include EventFunctions
 
   attr_accessor *%i{
     name substate_map substates superstate enters exits events concurrent history deep __is_current__ __cache__ 
@@ -29,12 +32,16 @@ class StateNode
 
   class ConcurrentHistoryError < ArgumentError; end
   class ConcurrentStateCannotHaveConditionError < ArgumentError; end
+  class CannotResolveConditionPathError < StandardError; end
   class CannotResolveError < StandardError; end
   class EnterMultipleSubstatesError < StandardError; end
   class InactiveStateError < StandardError; end
   class MultiplePivotError < StandardError; end
   class PivotingOnConcurrentStateError < StandardError; end
   class PivotingToDifferentStatechartError < StandardError; end
+
+  # event errors
+  class SendEventToInactiveStateError < StandardError; end
   
 
   alias_method :n, :name
@@ -42,10 +49,17 @@ class StateNode
   # Public: Convenience method for creating a new statechart. Simply creates a root state and invoke given function on that state.
   # opts - object of options to pass to StateNode constructor
   # callback - post create hook
-  def self.define(opts = {}, &callback)
-    new_state = self.new('__root__', opts)
-    callback.call(new_state) if callback
-    new_state
+  def self.define(opts={}, &callback)
+    self.new('__root__', opts, &callback)
+  end
+
+  def state(name, opts = {}, &callback)
+    new_substate = (name.class == self.class) ?
+      name : 
+      self.class.new(name, opts, &callback)
+
+    add_substate(new_substate)
+    new_substate
   end
 
   def initialize(name, opts = {}, &callback)
@@ -81,6 +95,7 @@ class StateNode
   end
 
   # Status methods
+  def root?() @name === '__root__'; end
   def concurrent?() @concurrent; end
   def history?() @history end
   def deep?() @deep end
