@@ -16,10 +16,11 @@ module EnterStateFunctions
 
   # Enters a clustered state NOTE: private
   def enter_clustered(states, opts)
+    # byebug if name == 'm'
     selflen = path_states.size
 
     # find the first active substate and set to cur, break
-    cur = @substates.find {|state| state.__is_current__? } 
+    current_active_substate = @substates.find {|state| state.__is_current__? } 
 
     # ???for each states, push the ? current level of depth of substate
     nexts = states.reduce([]) { |arr, state| arr << state.path_states[selflen] }
@@ -52,9 +53,10 @@ module EnterStateFunctions
       next_state = @substates.first unless next_state # else set next to first substate
     end
 
-    cur.exit(opts) if cur && cur != next_state # if `cur` isn't next, call cur.exit(opts)
+    current_active_substate.exit(opts) if current_active_substate && current_active_substate != next_state # if `cur` isn't next, call cur.exit(opts)
 
     # if state is not currently active state or if option has { force: true }, set current active state to { true } and call `this.call_enter_handler(opts[:context])`
+    # byebug
     if !__is_current__? || opts[:force]
       trace_state("State: [ENTER] : #{self.path} #{__is_current__? && '(forced)'}")
       @__is_current__ = true
@@ -77,26 +79,29 @@ module EnterStateFunctions
       call_enter_handler(opts[:context])
     end
 
+    valid_destination_states = []
+
     # Loop over all substates
     # nest another loop to loop over destination states
     # -> check if substates and destination states pivots at substate 
     # (basically checking if targeted state is stemmed from this (concurrent) state)
     @substates.map do |substate|
-      destination_states = destination_states.select do |d_state|
+      valid_destination_states = destination_states.select do |d_state|
         substate.find_pivot(d_state) == substate
       end
-      substate.enter(destination_states, opts)
+      substate.enter(valid_destination_states, opts)
     end
 
     self
   end
 
   def call_enter_handler(opts_context)
-    @enters.each {|enterFn| enterFn.(self, opts_context) }
+    @enters.each {|enter_fn| enter_fn.(self, opts_context) }
   end
 
   def call_exit_handler(opts_context) 
-    @exits.each {|exitFn| exitFn.(self, opts_context) }
+    # byebug
+    @exits.each {|exit_fn| exit_fn.(self, opts_context) }
   end
 
   # pending implementation

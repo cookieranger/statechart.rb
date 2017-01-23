@@ -1,3 +1,7 @@
+require 'enter_state_fns'
+require 'json'
+require 'pp'
+
 def uniq_states(states)
   seen = {}; arr = [];
   
@@ -14,15 +18,13 @@ def uniq_states(states)
   arr
 end
 
-require 'enter_state_fns'
-
 class StateNode
   include EnterStateFunctions
 
   attr_accessor *%i{
     name substate_map substates superstate enters exits events concurrent history deep __is_current__ __cache__ 
     __transitions__ trace 
-    __condition__
+    __condition__ can_exit
   }
 
   class ConcurrentHistoryError < ArgumentError; end
@@ -73,6 +75,7 @@ class StateNode
 
     # mine
     @__condition__   = {}
+    @can_exit        = nil
 
     callback.call(self) if callback
   end
@@ -197,7 +200,7 @@ class StateNode
 
     pivot = pivots[0] || self
 
-    if pivot.can_exit?(destination_states, opts) === false # special reason ??
+    if pivot.can_exit?(destination_states, opts) === false 
       trace_state("State: [GOTO] : #{self} cannot exit")
       return false
     end
@@ -282,4 +285,34 @@ class StateNode
   def attached?() root.is_root?; end
 
   def to_s() @name; end
+
+  def view
+    p "this is what this state #{name} look like"
+    pp JSON.parse to_view.to_json
+    nil
+  end
+
+  def to_view
+    if @substates.any?
+      @substates.reduce({}) do |hash, substate|
+        modified_name = "#{substate.name}#{substate.concurrent? ? '.concur' : ''}#{substate.current? ? '.active' : ''}"
+        hash[modified_name] = substate.to_view
+        hash
+      end
+    else
+      { leaf: true }
+    end
+  end
+
+  # NOTE: private
+  def can_exit?(destination_states, opts)
+    @substates.map do |substate|
+      if substate.__is_current__? && 
+        substate.can_exit?(destination_states, opts) === false
+        return false
+      end
+    end
+
+    !@can_exit || @can_exit.(destination_states, opts)
+  end
 end

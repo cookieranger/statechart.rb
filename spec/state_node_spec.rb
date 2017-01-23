@@ -156,6 +156,42 @@ describe StateNode do
   end
 
   describe '#goto dependencies' do
+    xdescribe '#enter#exit handlers - Independent test' do
+      let(:enter_a) { StateNode.new('enterA') }
+      let(:enter_b) { StateNode.new('enterB') }
+      let(:enter_c) { StateNode.new('enterC') }
+      let(:enter_1) { StateNode.new('enter1') }
+      let(:enter_2) { StateNode.new('enter2') }
+      let(:enter_3) { StateNode.new('enter3') }
+      let(:enter_root) {StateNode.new('enterRoot') }
+      let(:enter_col) { [] }
+
+      before do
+        enter_root.add_substate(enter_a).add_substate(enter_1)
+        enter_a.add_substate(enter_b).add_substate(enter_c)
+        enter_1.add_substate(enter_2).add_substate(enter_3)
+
+        [enter_a, enter_b, enter_c, enter_1, enter_2, enter_3].each do |st|
+          st.upon_enter do |s|
+            enter_col << s
+          end
+        end
+      end
+
+      it 'should invoke when entered' do
+        enter_root.goto
+        enter_root.all_active_paths.should =~ ['/enterA/enterB']
+        enter_col.should =~ [enter_a, enter_b]
+
+        enter_root.goto('/enter1')
+        enter_root.all_active_paths.should =~ ['/enter1/enter2']
+        enter_col.should =~ [enter_a, enter_b, enter_1, enter_2]
+
+        enter_root.goto('/enter1/enter3')
+        enter_col.should =~ [enter_a, enter_b, enter_1, enter_2, enter_3]
+      end
+    end
+
     describe 'StateNode#all_active_paths <<- State#current' do
       let(:root) { StateNode.define }
       let(:state_concurrent) { StateNode.new('concurrent', { concurrent: true }) }
@@ -194,7 +230,7 @@ describe StateNode do
     end
 
     # direct translated replica of statechart.js
-    describe 'StateNode#goto' do
+    describe 'StateNode#goto and E2E' do
       let(:root) { StateNode.new('root')                  }
       let(:a)    { StateNode.new('a')                     }
       let(:b)    { StateNode.new('b', {H: true})          }
@@ -209,6 +245,8 @@ describe StateNode do
       let(:k)    { StateNode.new('k')                     }
       let(:l)    { StateNode.new('l')                     }
       let(:m)    { StateNode.new('m')                     }
+      let(:enters) { [] }
+      let(:exits) { [] }
 
       before do
         root.add_substate(a);
@@ -229,10 +267,9 @@ describe StateNode do
         states = [root, a, b, c, d, e, f, g, h, i, j, k, l, m];
 
         # configure enter and exit 
-        enters, exits = [], []
-        states.each do |state|
-          state.upon_enter { |s| enters << s }
-          state.upon_exit { |s| enters << s }
+        [root, a, b, c, d, e, f, g, h, i, j, k, l, m].each do |state|
+          state.upon_enter { |s| enters << s.name }
+          state.upon_exit { |s| exits << s.name }
         end
       end
 
@@ -285,7 +322,167 @@ describe StateNode do
         f.goto './../../b/./d/../c'
         root.all_active_paths.should == ['/a/b/c']
         c.goto '../../e/g/h/j/../i', '../../e/g/k'
-        root.all_active_paths.should == ['/a/e/g/h/i','/a/e/g/k/l']
+        root.all_active_paths.should =~ ['/a/e/g/h/i','/a/e/g/k/l']
+      end
+
+      describe '#upon_enter and #upon_exit tests' do  
+        it 'should exit the states leading up to the pivot state and enter the states leading to the destination states' do
+          c.goto('/a/e/f')
+          root.all_active_paths.should == ['/a/e/f']
+          exits.should =~ ['c','b']
+          enters.should =~ ['e','f']
+
+          enters.clear
+          exits.clear
+
+          f.goto('/a/e/g/h/i', '/a/e/g/k/m')
+          root.all_active_paths.should == ['/a/e/g/h/i', '/a/e/g/k/m']
+          exits.should =~ ['f']
+          enters.should =~ ['g', 'h', 'i', 'k', 'm']
+        end
+
+        it 'should set `__is_current__` to `true` on all states entered and to `false` on all states exited' do
+          [a,b,c,e,f].map(&:__is_current__?).should == [true, true, true, false, false]
+
+          c.goto('/a/e/f')
+          [a,b,c,e,f].map(&:__is_current__?).should == [true, false, false, true, true]
+        end
+
+        it 'should enter the default substate when a path to a leaf state is not given' do
+          c.goto('/a/e/g')
+          enters.should == %w(e g h i k l)
+        end
+
+        it 'should exit all substates when a concurrent superstate is exited' do
+          c.goto('/a/e/g/h/j', '/a/e/g/k/l')
+
+          exits.clear
+          g.goto('/a/b/d')
+          exits.should == %w(j h l k g e)
+        end
+
+        it 'should enter all substates when a concurrent superstate is entered' do
+          c.goto('/a/e/g')
+          enters.should == %w(e g h i k l)
+        end
+
+        it 'should not affect the states in concurrent superstates' do
+          c.goto('/a/e/g/h/j', '/a/e/g/k/m')
+
+          exits.clear
+          enters.clear
+
+          m.goto('/a/e/g/k/l')
+          exits.should == ['m']
+          enters.should == ['l']
+        end
+
+        it 'should enter the most recently exited substate when the path is not specified and the state has history tracking' do
+          root.all_active_paths.should == ['/a/b/c']
+          c.goto '/a/b/d'
+          root.all_active_paths.should == ['/a/b/d']
+          d.goto '/a/e/f'
+          root.all_active_paths.should == ['/a/e/f']
+          f.goto '/a/b'
+          root.all_active_paths.should == ['/a/b/d'] # remembers D, horray!
+        end
+
+        it 'should enter the most recently exited leaf states when the path is NOT specified and the state has deep history tracking' do
+          root.goto('/a/e/g/h/j', '/a/e/g/k/m')
+          root.all_active_paths.should == ['/a/e/g/h/j', '/a/e/g/k/m']
+          root.goto('/a/b/c')
+          root.all_active_paths.should == ['/a/b/c']
+          root.goto('/a/e')
+          root.all_active_paths.should == ['/a/e/g/h/j', '/a/e/g/k/m']
+        end
+
+        # Enter exit
+        it 'should pass along its `context` option to each entered states `enter` method' do
+          e_ctx, f_ctx = nil, nil
+          e.upon_enter {|state, context| e_ctx = context}
+          f.upon_enter {|state, context| f_ctx = context}
+          c.goto('/a/e/f', context: 'foo')
+
+          e_ctx.should == 'foo'
+          f_ctx.should == 'foo'
+        end
+
+        it 'should invoke all other handlers registered on the state' do
+          calls = []
+          e.upon_enter { calls << 1}
+          e.upon_enter { calls << 2}
+          e.upon_enter { calls << 3}
+          c.goto('/a/e/f')
+          calls.should == [1,2,3]
+        end
+
+        it 'should pass along its `context` option to each exited states `exit` method' do
+          b_ctx, c_ctx = nil, nil
+          b.upon_exit { |state, context| b_ctx = context }
+          c.upon_exit { |state, context| c_ctx = context }
+          c.goto '/a/e/f', context: 'bar'
+          b_ctx.should == 'bar'
+          c_ctx.should == 'bar'
+        end
+
+        it 'should invoke all exit handlers registered on the state' do
+          calls = []
+          b.upon_exit { calls << 1}
+          b.upon_exit { calls << 2}
+          c.goto '/a/e/f'
+          calls.should == [1,2]
+        end
+
+        it 'should invoke `enter` methods on states that are already current when the `force` option is given' do
+          c.goto '/a/e/f'
+          enters.should == ['e', 'f']
+
+          enters.clear
+          root.goto('/a/e/f')
+          enters.should == []
+
+          root.goto '/a/e/f', force: true
+          enters.should == %w(root a e f)
+        end
+      end
+    end
+
+    describe '#can_exit' do
+      let(:root) { StateNode.new('root') }
+      let(:stateA) { StateNode.new('a') }
+      let(:stateB) { StateNode.new('b') }
+
+      before do
+        root.add_substate(stateA).add_substate(stateB).goto  
+      end
+
+      it 'blocks transition if it returns false' do
+        stateA.can_exit = ->(*args) { false }
+        root.goto '/b'
+        root.all_active_paths.should == ['/a']
+      end
+
+      it 'does not block transition if it returns anything' do
+        root.can_exit = ->(*args) { nil }
+
+        root.goto('/b').should == true
+        root.all_active_paths.should == ['/b']
+      end
+
+      it 'causes #goto to return false' do
+        root.can_exit = ->(*args) { false }
+        root.goto('/b').should == false
+      end
+
+      it 'gets called with the destination states, context and other opts' do
+        args = []
+        stateA.can_exit = ->(*arguments) { args = arguments }
+
+        root.goto '/b', context: 'the context', force: true
+        args.should =~ [
+          [root.resolve('/b')], 
+          context: 'the context', force: true
+        ]
       end
     end
   end
