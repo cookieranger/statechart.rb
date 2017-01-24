@@ -20,4 +20,37 @@ describe 'weird spec test' do
   end
 
   # it 'do blocks dont throw errors... does &->() {} throw errors'
+  def call_your_function(&callback)
+    callback.(123) if callback
+    456
+  end
+
+  it 'lambdas throws error' do
+    -> {
+      call_your_function(&->(arg) { raise StandardError, 'lamdba threw errorerror' })
+    }.should raise_error StandardError
+  end
+
+  it 'lambda needs exact params' do
+    -> {
+      call_your_function(&->() {})
+    }.should raise_error ArgumentError
+  end
+
+  it 'block throws error' do
+    -> {
+      call_your_function do
+        raise StandardError, 'block throws error'
+      end
+    }.should raise_error StandardError
+  end
+
+  it 'block does NOT need exact params' do
+    -> {
+      call_your_function do
+        
+      end
+    }.should_not raise_error
+  end
 end
+
